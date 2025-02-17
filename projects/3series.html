@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>1986 - 2006 BMW 3 Series Classifier</title>
+    <link rel="icon" type="image/x-icon" href="../media/favicon/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="../media/favicon/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../media/favicon/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../media/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="../media/favicon/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../media/favicon/android-chrome-512x512.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@100..900&display=swap" rel="stylesheet">
+    <script type="module">
+        import { Client } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const form = document.getElementById('upload-form');
+            const imageInput = document.getElementById('image-input');
+            const imagePreview = document.getElementById('image-preview');
+            const resultContainer = document.getElementById('result');
+            const chartContainer = document.getElementById('chart-container');
+            const loadingSpinner = document.getElementById('loading-spinner');
+            const classifyButton = document.getElementById('classify-button');
+            const clearButton = document.getElementById('clear-button');
+            const exampleImagesContainer = document.getElementById('example-images');
+            const exampleImagesHeading = document.getElementById('example-images-heading');
+            const ctx = document.getElementById('confidenceChart').getContext('2d');
+            let chart;
+
+            const updateClassifyButtonState = () => {
+                classifyButton.disabled = !imageInput.files.length;
+                classifyButton.style.backgroundColor = imageInput.files.length ? '#007BFF' : '#ccc';
+            };
+
+            imageInput.addEventListener('change', function() {
+                if (imageInput.files.length > 0) {
+                    chartContainer.style.display = 'none';
+                    exampleImagesContainer.style.display = 'none';
+                    exampleImagesHeading.style.display = 'none';
+                    const reader = new FileReader();
+                    reader.readAsDataURL(imageInput.files[0]);
+                    reader.onload = function(e) {
+                        imagePreview.src = e.target.result;
+                        imagePreview.style.display = 'block';
+                        imagePreview.style.margin = '0 auto';
+                        imagePreview.style.textAlign = 'center';
+                    };
+                }
+                updateClassifyButtonState();
+            });
+
+            clearButton.addEventListener('click', function() {
+                imageInput.value = '';
+                imagePreview.src = '';
+                imagePreview.style.display = 'none';
+                chartContainer.style.display = 'none';
+                resultContainer.innerHTML = '';
+                exampleImagesContainer.style.display = 'flex';
+                exampleImagesHeading.style.display = 'block';
+                if (chart) chart.destroy();
+                updateClassifyButtonState();
+            });
+
+            form.addEventListener('submit', async function(event) {
+                event.preventDefault();
+                if (imageInput.files.length === 0) return;
+
+                try {
+                    loadingSpinner.style.display = 'block';
+                    resultContainer.innerHTML = '';
+                    chartContainer.style.display = 'none';
+
+                    const imageBlob = await fetch(imagePreview.src).then(res => res.blob());
+                    const client = await Client.connect("lns44/82_06_3series_classifier");
+                    const result = await client.predict("/predict", { img: imageBlob });
+
+                    const predictions = result.data[0];
+                    if (!predictions || !predictions.confidences) {
+                        alert('No predictions received.');
+                        return;
+                    }
+
+                    const mainPrediction = predictions.confidences[0];
+                    resultContainer.innerHTML = `<h2>Prediction: ${mainPrediction.label} (${Math.round(mainPrediction.confidence * 100)}%)</h2>`;
+
+                    const labels = predictions.confidences.map(p => `${p.label} - ${Math.round(p.confidence * 100)}%`);
+                    const data = predictions.confidences.map(p => Math.round(p.confidence * 100));
+
+                    if (chart) chart.destroy();
+                    chart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Confidence Level (%)',
+                                data: data,
+                                backgroundColor: '#007BFF',
+                                borderColor: '#007BFF',
+                                borderWidth: 2,
+                                borderRadius: 6,
+                                hoverBackgroundColor: '#007BFF',
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            indexAxis: 'y',
+                            maintainAspectRatio: false,
+                            animation: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                                tooltip: {
+                                    enabled: false
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    beginAtZero: true,
+                                    max: 100,
+                                    grid: {
+                                        display: false
+                                    },
+                                    ticks: {
+                                        display: false
+                                    }
+                                },
+                                y: {
+                                    grid: {
+                                        display: false
+                                    },
+                                    ticks: {
+                                        font: {
+                                            family: 'Noto Sans Mono',
+                                            weight: 'bold',
+                                            size: 14
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    chartContainer.style.display = 'block';
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('An error occurred while processing the image.');
+                } finally {
+                    loadingSpinner.style.display = 'none';
+                }
+            });
+
+            const exampleImages = document.querySelectorAll('.example-image');
+            exampleImages.forEach(img => {
+                img.addEventListener('click', async function() {
+                    const fileInput = document.getElementById('image-input');
+                    const response = await fetch(this.src);
+                    const blob = await response.blob();
+                    const file = new File([blob], this.alt, { type: blob.type });
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    fileInput.files = dataTransfer.files;
+                    const changeEvent = new Event('change', { bubbles: true });
+                    fileInput.dispatchEvent(changeEvent);
+                });
+            });
+
+            updateClassifyButtonState();
+        });
+    </script>
+    <style>
+        body {
+            font-family: 'Noto Sans Mono', monospace;
+            text-align: center;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+        }
+        #upload-form {
+            margin: 20px auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .button {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-weight: bold;
+        }
+        .button:hover {
+            background-color: #0056b3;
+        }
+        .button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            border-radius: 5px;
+        }
+        .file-input-wrapper input[type="file"] {
+            font-size: 100px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .file-input-wrapper .custom-file-input {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            display: flex;
+            transition: background 0.3s;
+            font-weight: bold;
+        }
+        .file-input-wrapper .custom-file-input:hover {
+            background-color: #0056b3;
+        }
+        #clear-button {
+            background-color: #f17020;
+        }
+        #clear-button:hover {
+            background-color: #d45a1a;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+        #image-preview {
+            max-width: 100%;
+            max-height: 300px;
+            display: none;
+            margin-top: 10px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        #result {
+            font-size: 20px;
+            margin-top: 20px;
+            color: #333;
+        }
+        #chart-container {
+            width: 60%;
+            max-width: 500px;
+            height: 250px;
+            margin: 20px auto;
+            display: none;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        #loading-spinner {
+            display: none;
+            margin: 40px auto;
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #007BFF;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #example-images {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .example-image {
+            max-height: 80px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .example-image:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+    <h1>1986 - 2006 BMW 3 Series Classifier</h1>
+    <form id="upload-form">
+        <div class="button-group">
+            <div class="file-input-wrapper">
+                <input type="file" id="image-input" accept="image/*" required>
+                <span class="custom-file-input button">Upload Image</span>
+            </div>
+            <button type="button" id="clear-button" class="button">Clear</button>
+        </div>
+        <button type="submit" id="classify-button" class="button">Classify Image</button>
+    </form>
+    <h2 id="example-images-heading">Example images:</h2>
+    <div id="example-images">
+        <img src="../media/images/3series/e30.jpg" alt="e30" class="example-image">
+        <img src="../media/images/3series/e36.jpg" alt="e36" class="example-image">
+        <img src="../media/images/3series/e46.jpg" alt="e46" class="example-image">
+    </div>
+    <img id="image-preview" alt="Uploaded Image Preview">
+    <div id="loading-spinner"></div>
+    <div id="result"></div>
+    <div id="chart-container">
+        <canvas id="confidenceChart"></canvas>
+    </div>
+</body>
+</html>
