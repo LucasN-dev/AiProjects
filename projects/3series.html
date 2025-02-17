@@ -40,6 +40,7 @@
                     chartContainer.style.display = 'none';
                     exampleImagesContainer.style.display = 'none';
                     exampleImagesHeading.style.display = 'none';
+                    resultContainer.innerHTML = '';
                     const reader = new FileReader();
                     reader.readAsDataURL(imageInput.files[0]);
                     reader.onload = function(e) {
